@@ -1,0 +1,464 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta name="theme-color" content="#0b49b5">
+<title>Extracciones Domiciliarias</title>
+
+<!-- Librerías: usar SCRIPT, no "guion" -->
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+
+<style>
+:root{--azul:#0b49b5;--azul2:#083b94;--bg:#f3f6fa;--line:#d9e1ea;--texto:#18232e}
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,sans-serif;background:var(--bg);color:var(--texto)}
+header{background:linear-gradient(135deg,var(--azul2),var(--azul));color:#fff;padding:18px}
+header h1{margin:0;font-size:25px}
+header p{margin:5px 0 0;font-size:15px}
+main{max-width:1100px;margin:18px auto;padding:0 12px}
+.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:18px}
+h2{margin:0 0 13px}
+button{border:0;border-radius:10px;padding:12px 16px;font-size:16px;font-weight:700;cursor:pointer;background:var(--azul);color:#fff;margin:4px}
+button.secondary{background:#e8eef5;color:#17304e}
+button.danger{background:#b42318}
+input{width:100%;padding:12px;border:1px solid #cbd5df;border-radius:10px;font-size:16px}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.row>*{flex:1;min-width:180px}
+.preview{width:100%;max-height:420px;object-fit:contain;border:1px solid var(--line);border-radius:10px;margin-top:10px}
+.status{margin-top:10px;padding:10px;border-radius:8px;background:#f4f7fa}
+.ok{background:#e8f7ed;color:#146c2e}
+.err{background:#fff0f0;color:#9b1c1c}
+progress{width:100%;height:18px}
+table{width:100%;border-collapse:collapse;margin-top:10px}
+th,td{border:1px solid var(--line);padding:8px;text-align:left}
+th{background:#eef3f8}
+.small{font-size:13px;color:#667085}
+.hidden{display:none}
+#app{display:none}
+</style>
+</head>
+
+<body>
+
+<div id="login" class="card" style="max-width:680px;margin:70px auto">
+<h1>Extracciones Domiciliarias</h1>
+<p>Ingresá con tu usuario y contraseña.</p>
+<div style="margin-top:15px">
+<label>Usuario</label>
+<input id="usuarioLogin" autocomplete="username">
+</div>
+<div style="margin-top:12px">
+<label>Contraseña</label>
+<input id="passwordLogin" type="password" autocomplete="current-password">
+</div>
+<button id="btnLogin" style="width:100%;margin:16px 0 0">Ingresar</button>
+<div id="loginStatus" class="status"></div>
+</div>
+
+<div id="app">
+<header>
+<div style="display:flex;justify-content:space-between;gap:15px;align-items:center">
+<div>
+<h1>Extracciones Domiciliarias</h1>
+<p>Pacientes · Medicación · Excel mensual</p>
+</div>
+<button id="btnLogout" class="secondary">Cerrar sesión</button>
+</div>
+</header>
+
+<main>
+
+<section class="card">
+<h2>1. Cargar imagen de turnos</h2>
+<div class="row">
+<button id="btnGallery">🖼️ Elegir imagen</button>
+<button id="btnCamera" class="secondary">📷 Tomar foto</button>
+</div>
+
+<input id="turnosFile" type="file" accept="image/*" class="hidden">
+<input id="cameraFile" type="file" accept="image/*" capture="environment" class="hidden">
+
+<div id="imageInfo" class="status">No hay imagen cargada.</div>
+<img id="turnosPreview" class="preview hidden" alt="Vista previa">
+
+<button id="btnOCR" style="width:100%;margin-top:12px">Leer imagen automáticamente</button>
+<progress id="ocrProgress" value="0" max="1"></progress>
+<div id="ocrStatus" class="status">El OCR es asistido. Revisá siempre los datos antes de guardarlos.</div>
+<textarea id="ocrText" rows="8" style="width:100%;margin-top:10px;padding:10px;border:1px solid #ccd5df;border-radius:10px" placeholder="Texto detectado por OCR..."></textarea>
+</section>
+
+<section class="card">
+<h2>2. Pacientes</h2>
+<div class="row">
+<div>
+<label>Mes</label>
+<input id="mes" type="month">
+</div>
+<div>
+<label>Buscar</label>
+<input id="buscar" placeholder="Nombre, apellido u obra social">
+</div>
+</div>
+
+<div class="row" style="margin-top:12px">
+<input id="fecha" type="date" aria-label="Fecha">
+<input id="nombre" placeholder="Nombre">
+<input id="apellido" placeholder="Apellido">
+<input id="obra" placeholder="Obra social">
+</div>
+<button id="btnAgregar">Agregar paciente</button>
+
+<div id="pacientes"></div>
+</section>
+
+<section class="card">
+<h2>3. Foto de medicación</h2>
+<input id="medFile" type="file" accept="image/*" class="hidden">
+<button id="btnMedGallery">🖼️ Elegir imagen</button>
+<button id="btnMedCamera" class="secondary">📷 Tomar foto</button>
+<div id="medInfo" class="status">No hay imagen de medicación.</div>
+<img id="medPreview" class="preview hidden" alt="Vista previa medicación">
+<button id="btnMedOCR" style="width:100%">Leer medicación automáticamente</button>
+<div id="medStatus" class="status">El OCR de medicación también debe verificarse visualmente.</div>
+</section>
+
+<section class="card">
+<h2>4. Exportar mes</h2>
+<button id="btnExcel">📊 Descargar Excel (.xlsx)</button>
+<button id="btnCSV" class="secondary">Descargar CSV</button>
+<button id="btnBackup" class="secondary">Copia de seguridad</button>
+<input id="restore" type="file" accept=".json" class="hidden">
+<button id="btnRestore" class="secondary">Restaurar copia</button>
+<p class="small">Los datos se guardan localmente en este dispositivo.</p>
+</section>
+
+</main>
+</div>
+
+<script>
+"use strict";
+
+/* =========================
+   CONFIGURACIÓN
+========================= */
+const USUARIO = "administración";
+const CLAVE = "Laboratorio 2026!";
+const KEY_DATOS = "extracciones_domiciliarias_datos_v2";
+const KEY_SESION = "extracciones_domiciliarias_sesion_v2";
+
+let pacientes = [];
+let imagenTurnos = null;
+let imagenMed = null;
+
+/* =========================
+   UTILIDADES
+========================= */
+function $(id){ return document.getElementById(id); }
+
+function setStatus(id,text,ok=false){
+  const el=$(id);
+  el.textContent=text;
+  el.className="status "+(ok?"ok":"");
+}
+
+function cargarDatos(){
+  try{
+    const raw=localStorage.getItem(KEY_DATOS);
+    pacientes=raw?JSON.parse(raw):[];
+    if(!Array.isArray(pacientes)) pacientes=[];
+  }catch(e){
+    pacientes=[];
+    console.error(e);
+  }
+}
+
+function guardarDatos(){
+  localStorage.setItem(KEY_DATOS,JSON.stringify(pacientes));
+}
+
+function mostrarApp(){
+  $("login").style.display="none";
+  $("app").style.display="block";
+  cargarDatos();
+  renderPacientes();
+}
+
+function cerrarSesion(){
+  localStorage.removeItem(KEY_SESION);
+  $("app").style.display="none";
+  $("login").style.display="block";
+}
+
+function iniciarSesion(){
+  const u=$("usuarioLogin").value.trim();
+  const p=$("passwordLogin").value;
+
+  if(u===USUARIO && p===CLAVE){
+    localStorage.setItem(KEY_SESION,"1");
+    setStatus("loginStatus","Acceso correcto.",true);
+    mostrarApp();
+  }else{
+    setStatus("loginStatus","Usuario o contraseña incorrectos.");
+  }
+}
+
+/* =========================
+   IMÁGENES
+========================= */
+function mostrarImagen(file,imgId,infoId){
+  if(!file) return;
+  const url=URL.createObjectURL(file);
+  const img=$(imgId);
+  img.src=url;
+  img.classList.remove("hidden");
+  $(infoId).textContent="Imagen cargada: "+file.name;
+}
+
+$("btnGallery").onclick=()=>$("turnosFile").click();
+$("btnCamera").onclick=()=>$("cameraFile").click();
+
+$("turnosFile").onchange=e=>{
+  imagenTurnos=e.target.files[0]||null;
+  mostrarImagen(imagenTurnos,"turnosPreview","imageInfo");
+};
+
+$("cameraFile").onchange=e=>{
+  imagenTurnos=e.target.files[0]||null;
+  mostrarImagen(imagenTurnos,"turnosPreview","imageInfo");
+};
+
+$("btnMedGallery").onclick=()=>$("medFile").click();
+$("btnMedCamera").onclick=()=>$("medFile").click();
+
+$("medFile").onchange=e=>{
+  imagenMed=e.target.files[0]||null;
+  mostrarImagen(imagenMed,"medPreview","medInfo");
+};
+
+/* =========================
+   OCR ROBUSTO
+========================= */
+async function ejecutarOCR(file,statusId,progressId,textId){
+  if(!file){
+    setStatus(statusId,"Primero seleccioná una imagen.");
+    return;
+  }
+
+  if(typeof Tesseract==="undefined"){
+    setStatus(statusId,"No se pudo cargar el motor OCR. Revisá la conexión a Internet y recargá la página.");
+    return;
+  }
+
+  const progress=$(progressId);
+  progress.value=0;
+  setStatus(statusId,"Iniciando OCR...");
+
+  try{
+    const worker=await Tesseract.createWorker("spa+eng",1,{
+      logger:m=>{
+        if(typeof m.progress==="number") progress.value=m.progress;
+        if(m.status) setStatus(statusId,m.status+" "+Math.round((m.progress||0)*100)+"%");
+      }
+    });
+
+    const result=await worker.recognize(file);
+    const texto=result?.data?.text || "";
+
+    await worker.terminate();
+
+    progress.value=1;
+
+    if(!texto.trim()){
+      setStatus(statusId,"OCR finalizado, pero no se pudo detectar texto. Probá con una foto más nítida y bien iluminada.");
+      if(textId) $(textId).value="";
+      return;
+    }
+
+    if(textId) $(textId).value=texto;
+    setStatus(statusId,"OCR completado. Revisá los datos antes de guardarlos.",true);
+  }catch(error){
+    console.error("OCR:",error);
+    setStatus(statusId,"Error de OCR: "+(error?.message || String(error) || "error desconocido"));
+  }
+}
+
+$("btnOCR").onclick=()=>ejecutarOCR(imagenTurnos,"ocrStatus","ocrProgress","ocrText");
+
+$("btnMedOCR").onclick=async()=>{
+  if(!imagenMed){
+    setStatus("medStatus","Primero seleccioná una imagen.");
+    return;
+  }
+  await ejecutarOCR(imagenMed,"medStatus","ocrProgress",null);
+};
+
+/* =========================
+   PACIENTES
+========================= */
+function renderPacientes(){
+  const cont=$("pacientes");
+  const q=$("buscar").value.trim().toLowerCase();
+  const mes=$("mes").value;
+
+  let lista=pacientes.filter(p=>{
+    const coincideMes=!mes || (p.fecha||"").startsWith(mes);
+    const texto=(p.nombre+" "+p.apellido+" "+p.obra).toLowerCase();
+    return coincideMes && (!q || texto.includes(q));
+  });
+
+  if(!lista.length){
+    cont.innerHTML='<p class="small">No hay pacientes para este filtro.</p>';
+    return;
+  }
+
+  const table=document.createElement("table");
+  table.innerHTML="<thead><tr><th>Fecha</th><th>Nombre</th><th>Apellido</th><th>Obra social</th><th>Acción</th></tr></thead>";
+  const tbody=document.createElement("tbody");
+
+  lista.forEach(p=>{
+    const tr=document.createElement("tr");
+    tr.innerHTML=
+      "<td>"+esc(p.fecha)+"</td>"+
+      "<td>"+esc(p.nombre)+"</td>"+
+      "<td>"+esc(p.apellido)+"</td>"+
+      "<td>"+esc(p.obra)+"</td>"+
+      '<td><button class="danger" data-id="'+p.id+'">Eliminar</button></td>';
+    tbody.appendChild(tr);
+  });
+
+  table.appendChild(tbody);
+  cont.innerHTML="";
+  cont.appendChild(table);
+
+  cont.querySelectorAll("button[data-id]").forEach(btn=>{
+    btn.onclick=()=>{
+      pacientes=pacientes.filter(p=>p.id!==btn.dataset.id);
+      guardarDatos();
+      renderPacientes();
+    };
+  });
+}
+
+function esc(v){
+  return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
+}
+
+$("btnAgregar").onclick=()=>{
+  const p={
+    id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),
+    fecha:$("fecha").value,
+    nombre:$("nombre").value.trim(),
+    apellido:$("apellido").value.trim(),
+    obra:$("obra").value.trim(),
+    medicamentos:[]
+  };
+
+  if(!p.fecha || !p.nombre || !p.apellido){
+    alert("Completá fecha, nombre y apellido.");
+    return;
+  }
+
+  pacientes.push(p);
+  guardarDatos();
+  $("nombre").value="";
+  $("apellido").value="";
+  $("obra").value="";
+  renderPacientes();
+};
+
+$("buscar").oninput=renderPacientes;
+$("mes").onchange=renderPacientes;
+
+/* =========================
+   EXPORTACIÓN
+========================= */
+function datosMes(){
+  const mes=$("mes").value;
+  return pacientes.filter(p=>!mes || (p.fecha||"").startsWith(mes));
+}
+
+$("btnExcel").onclick=()=>{
+  if(typeof XLSX==="undefined"){
+    alert("La librería de Excel no se cargó. Revisá Internet y recargá.");
+    return;
+  }
+
+  const datos=datosMes().map(p=>({
+    Fecha:p.fecha,
+    Nombre:p.nombre,
+    Apellido:p.apellido,
+    "Obra Social":p.obra,
+    Medicación:(p.medicamentos||[]).join(" | ")
+  }));
+
+  const wb=XLSX.utils.book_new();
+  const ws=XLSX.utils.json_to_sheet(datos);
+  XLSX.utils.book_append_sheet(wb,ws,"Pacientes");
+  XLSX.writeFile(wb,"extracciones_"+($("mes").value||"mes")+".xlsx");
+};
+
+$("btnCSV").onclick=()=>{
+  const datos=datosMes();
+  const encabezado="Fecha,Nombre,Apellido,Obra Social,Medicación\n";
+  const filas=datos.map(p=>[
+    p.fecha,p.nombre,p.apellido,p.obra,(p.medicamentos||[]).join(" | ")
+  ].map(v=>'"'+String(v??"").replace(/"/g,'""')+'"').join(",")).join("\n");
+
+  const blob=new Blob([encabezado+filas],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download="extracciones_"+($("mes").value||"mes")+".csv";
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+$("btnBackup").onclick=()=>{
+  const blob=new Blob([JSON.stringify(pacientes,null,2)],{type:"application/json"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download="backup_extracciones.json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+$("btnRestore").onclick=()=>$("restore").click();
+
+$("restore").onchange=async e=>{
+  const file=e.target.files[0];
+  if(!file)return;
+  try{
+    const data=JSON.parse(await file.text());
+    if(!Array.isArray(data))throw new Error("El archivo no contiene una lista válida.");
+    pacientes=data;
+    guardarDatos();
+    renderPacientes();
+    alert("Copia restaurada correctamente.");
+  }catch(err){
+    alert("No se pudo restaurar: "+err.message);
+  }
+};
+
+/* =========================
+   SESIÓN
+========================= */
+$("btnLogin").onclick=iniciarSesion;
+$("passwordLogin").addEventListener("keydown",e=>{
+  if(e.key==="Enter") iniciarSesion();
+});
+$("btnLogout").onclick=cerrarSesion;
+
+cargarDatos();
+
+if(localStorage.getItem(KEY_SESION)==="1"){
+  mostrarApp();
+}else{
+  $("login").style.display="block";
+  $("app").style.display="none";
+}
+
+if($("mes")) $("mes").value=new Date().toISOString().slice(0,7);
+</script>
+</body>
+</html>
