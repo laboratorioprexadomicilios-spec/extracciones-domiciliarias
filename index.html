@@ -1,0 +1,687 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
+<meta name="theme-color" content="#0b49b5">
+<title>Extracciones Domiciliarias</title>
+
+<!-- Librerías: usar SCRIPT, no "guion" -->
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js"></script>
+<script src="https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js"></script>
+
+<style>
+:root{--azul:#0b49b5;--azul2:#083b94;--bg:#f3f6fa;--line:#d9e1ea;--texto:#18232e}
+*{box-sizing:border-box}
+body{margin:0;font-family:Arial,sans-serif;background:var(--bg);color:var(--texto)}
+header{background:linear-gradient(135deg,var(--azul2),var(--azul));color:#fff;padding:18px}
+header h1{margin:0;font-size:25px}
+header p{margin:5px 0 0;font-size:15px}
+main{max-width:1100px;margin:18px auto;padding:0 12px}
+.card{background:#fff;border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:18px}
+h2{margin:0 0 13px}
+button{border:0;border-radius:10px;padding:12px 16px;font-size:16px;font-weight:700;cursor:pointer;background:var(--azul);color:#fff;margin:4px}
+button.secondary{background:#e8eef5;color:#17304e}
+button.danger{background:#b42318}
+input{width:100%;padding:12px;border:1px solid #cbd5df;border-radius:10px;font-size:16px}
+.row{display:flex;gap:10px;flex-wrap:wrap}
+.row>*{flex:1;min-width:180px}
+.preview{width:100%;max-height:420px;object-fit:contain;border:1px solid var(--line);border-radius:10px;margin-top:10px}
+.status{margin-top:10px;padding:10px;border-radius:8px;background:#f4f7fa}
+.ok{background:#e8f7ed;color:#146c2e}
+.err{background:#fff0f0;color:#9b1c1c}
+progress{width:100%;height:18px}
+table{width:100%;border-collapse:collapse;margin-top:10px}
+th,td{border:1px solid var(--line);padding:8px;text-align:left}
+th{background:#eef3f8}
+.small{font-size:13px;color:#667085}
+.hidden{display:none}
+#app{display:none}
+</style>
+</head>
+
+<body>
+
+<div id="login" class="card" style="max-width:680px;margin:70px auto">
+<h1>Extracciones Domiciliarias</h1>
+<p>Ingresá con tu usuario y contraseña.</p>
+<div style="margin-top:15px">
+<label>Usuario</label>
+<input id="usuarioLogin" autocomplete="username">
+</div>
+<div style="margin-top:12px">
+<label>Contraseña</label>
+<input id="passwordLogin" type="password" autocomplete="current-password">
+</div>
+<button id="btnLogin" type="button" style="width:100%;margin:16px 0 0">Ingresar</button>
+<div id="loginStatus" class="status"></div>
+</div>
+
+<div id="app">
+<header>
+<div style="display:flex;justify-content:space-between;gap:15px;align-items:center">
+<div>
+<h1>Extracciones Domiciliarias</h1>
+<p>Pacientes · Medicación · Excel mensual</p>
+</div>
+<button id="btnLogout" class="secondary">Cerrar sesión</button>
+</div>
+</header>
+
+<main>
+
+<section class="card">
+<h2>1. Cargar imagen de turnos</h2>
+<div class="row">
+<button id="btnGallery">🖼️ Elegir imagen</button>
+<button id="btnCamera" class="secondary">📷 Tomar foto</button>
+</div>
+
+<input id="turnosFile" type="file" accept="image/*" class="hidden">
+<input id="cameraFile" type="file" accept="image/*" capture="environment" class="hidden">
+
+<div id="imageInfo" class="status">No hay imagen cargada.</div>
+<img id="turnosPreview" class="preview hidden" alt="Vista previa">
+
+<button id="btnOCR" style="width:100%;margin-top:12px">Leer imagen automáticamente</button>
+<progress id="ocrProgress" value="0" max="1"></progress>
+<div id="ocrStatus" class="status">El OCR es asistido. Revisá siempre los datos antes de guardarlos.</div>
+<textarea id="ocrText" rows="7" style="width:100%;margin-top:10px;padding:10px;border:1px solid #ccd5df;border-radius:10px" placeholder="Texto detectado por OCR..."></textarea>
+<div id="ocrResultados" style="margin-top:14px"></div>
+<button id="btnGuardarOCR" style="width:100%;display:none;background:#16803c">💾 Guardar pacientes interpretados</button>
+<p class="small">La interpretación automática solo toma estos 4 datos: <b>Nombre completo y apellido, Edad, DNI y Obra social</b>. Podés corregirlos antes de guardar.</p>
+</section>
+
+<section class="card">
+<h2>2. Pacientes</h2>
+<div class="row">
+<div>
+<label>Mes</label>
+<input id="mes" type="month">
+</div>
+<div>
+<label>Buscar</label>
+<input id="buscar" placeholder="Nombre, apellido u obra social">
+</div>
+</div>
+
+<div class="row" style="margin-top:12px">
+<input id="fecha" type="date" aria-label="Fecha">
+<input id="nombre" placeholder="Nombre">
+<input id="apellido" placeholder="Apellido">
+<input id="edad" type="number" min="0" max="120" placeholder="Edad">
+<input id="dni" inputmode="numeric" placeholder="DNI">
+<input id="obra" placeholder="Obra social">
+</div>
+<button id="btnAgregar">Agregar paciente</button>
+
+<div id="pacientes"></div>
+</section>
+
+<section class="card">
+<h2>3. Foto de medicación</h2>
+<input id="medFile" type="file" accept="image/*" class="hidden">
+<button id="btnMedGallery">🖼️ Elegir imagen</button>
+<button id="btnMedCamera" class="secondary">📷 Tomar foto</button>
+<div id="medInfo" class="status">No hay imagen de medicación.</div>
+<img id="medPreview" class="preview hidden" alt="Vista previa medicación">
+<button id="btnMedOCR" style="width:100%">Leer medicación automáticamente</button>
+<div id="medStatus" class="status">El OCR de medicación también debe verificarse visualmente.</div>
+</section>
+
+<section class="card">
+<h2>4. Exportar mes</h2>
+<button id="btnExcel">📊 Descargar Excel (.xlsx)</button>
+<button id="btnCSV" class="secondary">Descargar CSV</button>
+<button id="btnBackup" class="secondary">Copia de seguridad</button>
+<input id="restore" type="file" accept=".json" class="hidden">
+<button id="btnRestore" class="secondary">Restaurar copia</button>
+<p class="small">Los datos se guardan localmente en este dispositivo.</p>
+</section>
+
+</main>
+</div>
+
+<script>
+"use strict";
+
+/* =========================
+   CONFIGURACIÓN
+========================= */
+const USUARIO = "administración";
+const CLAVE = "Laboratorio 2026!";
+const KEY_DATOS = "extracciones_domiciliarias_datos_v2";
+const KEY_SESION = "extracciones_domiciliarias_sesion_v2";
+
+let pacientes = [];
+let imagenTurnos = null;
+let imagenMed = null;
+
+/* =========================
+   UTILIDADES
+========================= */
+function $(id){ return document.getElementById(id); }
+
+function setStatus(id,text,ok=false){
+  const el=$(id);
+  el.textContent=text;
+  el.className="status "+(ok?"ok":"");
+}
+
+function cargarDatos(){
+  try{
+    const raw=localStorage.getItem(KEY_DATOS);
+    pacientes=raw?JSON.parse(raw):[];
+    if(!Array.isArray(pacientes)) pacientes=[];
+    pacientes=pacientes.map(p=>({
+      id:p.id || (crypto.randomUUID?crypto.randomUUID():String(Date.now()+Math.random())),
+      fecha:p.fecha||"",
+      nombreCompleto:p.nombreCompleto || [p.nombre||"",p.apellido||""].filter(Boolean).join(" ").trim(),
+      nombre:p.nombre||"",
+      apellido:p.apellido||"",
+      edad:p.edad||"",
+      dni:p.dni||"",
+      obra:p.obra||"",
+      medicamentos:Array.isArray(p.medicamentos)?p.medicamentos:[]
+    }));
+  }catch(e){
+    pacientes=[];
+    console.error(e);
+  }
+}
+
+function guardarDatos(){
+  localStorage.setItem(KEY_DATOS,JSON.stringify(pacientes));
+}
+
+function mostrarApp(){
+  $("login").style.display="none";
+  $("app").style.display="block";
+  cargarDatos();
+  renderPacientes();
+}
+
+function cerrarSesion(){
+  localStorage.removeItem(KEY_SESION);
+  $("app").style.display="none";
+  $("login").style.display="block";
+}
+
+function iniciarSesion(){
+  const u=$("usuarioLogin").value.trim();
+  const p=$("passwordLogin").value;
+
+  const usuarioValido=(u===USUARIO || u==="administracion");
+  if(usuarioValido && p===CLAVE){
+    try{ localStorage.setItem(KEY_SESION,"1"); }catch(e){ console.warn("No se pudo guardar la sesión local",e); }
+    setStatus("loginStatus","Acceso correcto.",true);
+    mostrarApp();
+  }else{
+    setStatus("loginStatus","Usuario o contraseña incorrectos.");
+  }
+}
+
+/* =========================
+   IMÁGENES
+========================= */
+function mostrarImagen(file,imgId,infoId){
+  if(!file) return;
+  const url=URL.createObjectURL(file);
+  const img=$(imgId);
+  img.src=url;
+  img.classList.remove("hidden");
+  $(infoId).textContent="Imagen cargada: "+file.name;
+}
+
+$("btnGallery").onclick=()=>$("turnosFile").click();
+$("btnCamera").onclick=()=>$("cameraFile").click();
+
+$("turnosFile").onchange=e=>{
+  imagenTurnos=e.target.files[0]||null;
+  mostrarImagen(imagenTurnos,"turnosPreview","imageInfo");
+};
+
+$("cameraFile").onchange=e=>{
+  imagenTurnos=e.target.files[0]||null;
+  mostrarImagen(imagenTurnos,"turnosPreview","imageInfo");
+};
+
+$("btnMedGallery").onclick=()=>$("medFile").click();
+$("btnMedCamera").onclick=()=>$("medFile").click();
+
+$("medFile").onchange=e=>{
+  imagenMed=e.target.files[0]||null;
+  mostrarImagen(imagenMed,"medPreview","medInfo");
+};
+
+/* =========================
+   OCR ROBUSTO
+========================= */
+async function ejecutarOCR(file,statusId,progressId,textId){
+  if(!file){
+    setStatus(statusId,"Primero seleccioná una imagen.");
+    return;
+  }
+
+  if(typeof Tesseract==="undefined"){
+    setStatus(statusId,"No se pudo cargar el motor OCR. Revisá la conexión a Internet y recargá la página.");
+    return;
+  }
+
+  const progress=$(progressId);
+  progress.value=0;
+  setStatus(statusId,"Iniciando OCR...");
+
+  try{
+    const worker=await Tesseract.createWorker("spa+eng",1,{
+      logger:m=>{
+        if(typeof m.progress==="number") progress.value=m.progress;
+        if(m.status) setStatus(statusId,m.status+" "+Math.round((m.progress||0)*100)+"%");
+      }
+    });
+
+    const result=await worker.recognize(file);
+    const texto=result?.data?.text || "";
+
+    await worker.terminate();
+
+    progress.value=1;
+
+    if(!texto.trim()){
+      setStatus(statusId,"OCR finalizado, pero no se pudo detectar texto. Probá con una foto más nítida y bien iluminada.");
+      if(textId) $(textId).value="";
+      return;
+    }
+
+    if(textId) $(textId).value=texto;
+    setStatus(statusId,"OCR completado. Revisá los datos antes de guardarlos.",true);
+  }catch(error){
+    console.error("OCR:",error);
+    setStatus(statusId,"Error de OCR: "+(error?.message || String(error) || "error desconocido"));
+  }
+}
+
+$("btnOCR").onclick=async()=>{
+  await ejecutarOCR(imagenTurnos,"ocrStatus","ocrProgress","ocrText");
+  const texto=$("ocrText").value.trim();
+  if(texto){
+    prepararDatosOCR(texto);
+  }else{
+    pendientesOCR=[];
+    mostrarPendientesOCR();
+  }
+};
+
+$("btnMedOCR").onclick=async()=>{
+  if(!imagenMed){
+    setStatus("medStatus","Primero seleccioná una imagen.");
+    return;
+  }
+  await ejecutarOCR(imagenMed,"medStatus","ocrProgress",null);
+};
+
+/* =========================
+   OCR: INTERPRETAR → EDITAR → GUARDAR
+========================= */
+let pendientesOCR=[];
+
+function interpretarLineaOCR(linea){
+  let s=String(linea||"")
+    .replace(/\u00a0/g," ")
+    .replace(/\s+/g," ")
+    .trim();
+
+  if(!s || !/\d/.test(s)) return null;
+
+  // Ignorar encabezados y textos que no representan una fila de paciente.
+  if(/^(turno|fecha|hora|nombre|nrodoc|nro doc|dni|mutual|obra social)\b/i.test(s)) return null;
+
+  // Obtener fecha solo para asociar el registro al día seleccionado.
+  let fecha=$("fecha").value || new Date().toISOString().slice(0,10);
+  const fm=s.match(/\b(\d{1,2})\/(\d{1,2})\/(\d{4})\b/);
+  if(fm){
+    fecha=`${fm[3]}-${fm[2].padStart(2,"0")}-${fm[1].padStart(2,"0")}`;
+  }
+
+  // Elimina fecha/hora y separadores que suelen aparecer delante del paciente.
+  s=s
+    .replace(/^\s*\d{1,2}\/\d{1,2}\/\d{4}\s+\d{1,2}:\d{2}:\d{2}\s*[-–—]?\s*/,"")
+    .replace(/^\s*\d{1,2}\/\d{4}\s+\d{1,2}:\d{2}:\d{2}\s*[-–—]?\s*/,"")
+    .replace(/^\s*\d{1,2}:\d{2}:\d{2}\s*[-–—]?\s*/,"");
+
+  // Captura únicamente: NOMBRE COMPLETO (EDAD) DNI OBRA SOCIAL
+  const m=s.match(/^(.+?)\s*\((\d{1,3})\)\s+(\d{6,9})\s+(.+?)\s*$/);
+  if(!m) return null;
+
+  const nombreCompleto=m[1].trim().replace(/\s+/g," ");
+  const edad=m[2].trim();
+  const dni=m[3].trim();
+  const obra=m[4].trim().replace(/\s+/g," ");
+
+  // Evita capturar encabezados o filas evidentemente inválidas.
+  if(nombreCompleto.length<3 || !/^[A-ZÁÉÍÓÚÑÜa-záéíóúñü .'-]+$/.test(nombreCompleto)) return null;
+  if(!/^\d+$/.test(edad) || !/^\d{6,9}$/.test(dni) || obra.length<2) return null;
+
+  return {
+    fecha,
+    nombreCompleto,
+    edad,
+    dni,
+    obra,
+    // Campos compatibles con versiones anteriores.
+    nombre:nombreCompleto,
+    apellido:"",
+    medicamentos:[]
+  };
+}
+
+function mostrarPendientesOCR(){
+  const cont=$("ocrResultados");
+  const btn=$("btnGuardarOCR");
+
+  if(!pendientesOCR.length){
+    cont.innerHTML='<div class="status warn">No encontré filas con los 4 datos requeridos. Podés revisar el texto detectado y volver a leer la imagen.</div>';
+    btn.style.display="block";
+    btn.textContent="💾 Guardar pacientes interpretados";
+    btn.onclick=()=>alert("No hay registros interpretados todavía.");
+    return;
+  }
+
+  let t='<div class="status ok"><b>Planilla interpretada.</b> Editá directamente cualquier dato; los cambios quedan reflejados inmediatamente en esta planilla y serán los que se guarden y exporten.</div>';
+  t+='<div style="overflow-x:auto"><table id="tablaOCR"><thead><tr><th>Nombre completo y apellido</th><th>Edad</th><th>DNI</th><th>Obra social</th><th></th></tr></thead><tbody>';
+
+  pendientesOCR.forEach((p,i)=>{
+    t+=`<tr>
+      <td><input data-ocr="nombreCompleto" data-i="${i}" value="${esc(p.nombreCompleto)}" aria-label="Nombre completo y apellido"></td>
+      <td><input data-ocr="edad" data-i="${i}" type="number" min="0" max="120" value="${esc(p.edad)}" aria-label="Edad"></td>
+      <td><input data-ocr="dni" data-i="${i}" inputmode="numeric" pattern="[0-9]*" value="${esc(p.dni)}" aria-label="DNI"></td>
+      <td><input data-ocr="obra" data-i="${i}" value="${esc(p.obra)}" aria-label="Obra social"></td>
+      <td><button type="button" class="danger" data-ocr-delete="${i}">Quitar</button></td>
+    </tr>`;
+  });
+
+  t+="</tbody></table></div>";
+  cont.innerHTML=t;
+
+  btn.style.display="block";
+  btn.textContent="💾 Guardar planilla interpretada";
+  btn.onclick=guardarPendientesOCR;
+
+  cont.querySelectorAll("[data-ocr]").forEach(el=>{
+    el.oninput=()=>{
+      const i=Number(el.dataset.i);
+      const campo=el.dataset.ocr;
+      pendientesOCR[i][campo]=el.value;
+
+      // Mantener compatibilidad con la estructura anterior.
+      if(campo==="nombreCompleto"){
+        pendientesOCR[i].nombre=el.value;
+        pendientesOCR[i].apellido="";
+      }
+
+      // La planilla visible se actualiza en tiempo real.
+      el.closest("tr")?.classList.add("edited");
+    };
+  });
+
+  cont.querySelectorAll("[data-ocr-delete]").forEach(el=>{
+    el.onclick=()=>{
+      pendientesOCR.splice(Number(el.dataset.ocrDelete),1);
+      mostrarPendientesOCR();
+    };
+  });
+}
+
+function prepararDatosOCR(texto){
+  pendientesOCR=String(texto||"")
+    .split(/\r?\n/)
+    .map(interpretarLineaOCR)
+    .filter(Boolean);
+
+  // Un registro por DNI para evitar duplicados del mismo paciente.
+  const vistos=new Set();
+  pendientesOCR=pendientesOCR.filter(p=>{
+    if(vistos.has(p.dni)) return false;
+    vistos.add(p.dni);
+    return true;
+  });
+
+  mostrarPendientesOCR();
+}
+
+function guardarPendientesOCR(){
+  if(!pendientesOCR.length){
+    alert("No hay pacientes interpretados para guardar.");
+    return;
+  }
+
+  for(const p of pendientesOCR){
+    p.nombreCompleto=String(p.nombreCompleto||"").trim();
+    p.edad=String(p.edad||"").trim();
+    p.dni=String(p.dni||"").replace(/\D/g,"").trim();
+    p.obra=String(p.obra||"").trim();
+
+    if(!p.nombreCompleto || !p.edad || !p.dni || !p.obra){
+      alert("Hay un registro incompleto. Completá Nombre completo y apellido, Edad, DNI y Obra social.");
+      return;
+    }
+
+    if(!/^\d{6,9}$/.test(p.dni)){
+      alert("Hay un DNI inválido. Debe contener entre 6 y 9 números.");
+      return;
+    }
+  }
+
+  let nuevos=0, actualizados=0;
+
+  pendientesOCR.forEach(p=>{
+    // El DNI es el identificador principal del paciente.
+    const existente=pacientes.find(x=>String(x.dni||"").replace(/\D/g,"")===p.dni);
+
+    if(existente){
+      existente.nombreCompleto=p.nombreCompleto;
+      existente.nombre=p.nombreCompleto;
+      existente.apellido="";
+      existente.edad=p.edad;
+      existente.dni=p.dni;
+      existente.obra=p.obra;
+      if(!Array.isArray(existente.medicamentos)) existente.medicamentos=[];
+      if(!existente.fecha) existente.fecha=p.fecha;
+      actualizados++;
+    }else{
+      pacientes.push({
+        id:crypto.randomUUID?crypto.randomUUID():String(Date.now()+Math.random()),
+        fecha:p.fecha,
+        nombreCompleto:p.nombreCompleto,
+        nombre:p.nombreCompleto,
+        apellido:"",
+        edad:p.edad,
+        dni:p.dni,
+        obra:p.obra,
+        medicamentos:[]
+      });
+      nuevos++;
+    }
+  });
+
+  guardarDatos();
+  renderPacientes();
+
+  // La planilla interpretada sigue visible para poder comprobar qué se guardó.
+  setStatus("ocrStatus",`Guardado correcto: ${nuevos} nuevos, ${actualizados} actualizados.`,true);
+}
+
+/* =========================
+   PACIENTES
+========================= */
+function renderPacientes(){
+  const cont=$("pacientes");
+  const q=$("buscar").value.trim().toLowerCase();
+  const mes=$("mes").value;
+
+  let lista=pacientes.filter(p=>{
+    const coincideMes=!mes || (p.fecha||"").startsWith(mes);
+    const texto=((p.nombreCompleto||((p.nombre||"")+" "+(p.apellido||"")))+" "+(p.obra||"")).toLowerCase();
+    return coincideMes && (!q || texto.includes(q));
+  });
+
+  if(!lista.length){
+    cont.innerHTML='<p class="small">No hay pacientes para este filtro.</p>';
+    return;
+  }
+
+  const table=document.createElement("table");
+  table.innerHTML="<thead><tr><th>Fecha</th><th>Nombre completo y apellido</th><th>Edad</th><th>DNI</th><th>Obra social</th><th>Acción</th></tr></thead>";
+  const tbody=document.createElement("tbody");
+
+  lista.forEach(p=>{
+    const tr=document.createElement("tr");
+    tr.innerHTML=
+      "<td>"+esc(p.fecha)+"</td>"+
+      "<td>"+esc(p.nombreCompleto || p.nombre || "")+"</td>"+
+      "<td>"+esc(p.edad||"")+"</td>"+
+      "<td>"+esc(p.dni||"")+"</td>"+
+      "<td>"+esc(p.obra||"")+"</td>"+
+      '<td><button class="danger" data-id="'+p.id+'">Eliminar</button></td>';
+    tbody.appendChild(tr);
+  });
+
+  table.appendChild(tbody);
+  cont.innerHTML="";
+  cont.appendChild(table);
+
+  cont.querySelectorAll("button[data-id]").forEach(btn=>{
+    btn.onclick=()=>{
+      pacientes=pacientes.filter(p=>p.id!==btn.dataset.id);
+      guardarDatos();
+      renderPacientes();
+    };
+  });
+}
+
+function esc(v){
+  return String(v??"").replace(/[&<>"']/g,m=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[m]));
+}
+
+$("btnAgregar").onclick=()=>{
+  const p={
+    id:crypto.randomUUID?crypto.randomUUID():String(Date.now()),
+    fecha:$("fecha").value,
+    nombreCompleto:[$("nombre").value.trim(),$("apellido").value.trim()].filter(Boolean).join(" "),
+    nombre:$("nombre").value.trim(),
+    apellido:$("apellido").value.trim(),
+    edad:$("edad").value.trim(),
+    dni:$("dni").value.trim(),
+    obra:$("obra").value.trim(),
+    medicamentos:[]
+  };
+
+  if(!p.fecha || !p.nombre || !p.apellido || !p.dni){
+    alert("Completá fecha, nombre, apellido y DNI.");
+    return;
+  }
+
+  pacientes.push(p);
+  guardarDatos();
+  $("nombre").value="";
+  $("apellido").value="";
+  $("edad").value="";
+  $("dni").value="";
+  $("obra").value="";
+  renderPacientes();
+};
+
+$("buscar").oninput=renderPacientes;
+$("mes").onchange=renderPacientes;
+
+/* =========================
+   EXPORTACIÓN
+========================= */
+function datosMes(){
+  const mes=$("mes").value;
+  return pacientes.filter(p=>!mes || (p.fecha||"").startsWith(mes));
+}
+
+$("btnExcel").onclick=()=>{
+  if(typeof XLSX==="undefined"){
+    alert("La librería de Excel no se cargó. Revisá Internet y recargá.");
+    return;
+  }
+
+  const datos=datosMes().map(p=>({
+    Fecha:p.fecha,
+    "Nombre completo y apellido":p.nombreCompleto || p.nombre || "",
+    Edad:p.edad||"",
+    DNI:p.dni||"",
+    "Obra Social":p.obra||""
+  }));
+
+  const wb=XLSX.utils.book_new();
+  const ws=XLSX.utils.json_to_sheet(datos);
+  XLSX.utils.book_append_sheet(wb,ws,"Pacientes");
+  XLSX.writeFile(wb,"extracciones_"+($("mes").value||"mes")+".xlsx");
+};
+
+$("btnCSV").onclick=()=>{
+  const datos=datosMes();
+  const encabezado="Fecha,Nombre completo y apellido,Edad,DNI,Obra Social\n";
+  const filas=datos.map(p=>[
+    p.fecha,p.nombreCompleto || p.nombre || "",p.edad||"",p.dni||"",p.obra||""
+  ].map(v=>'"'+String(v??"").replace(/"/g,'""')+'"').join(",")).join("\n");
+
+  const blob=new Blob([encabezado+filas],{type:"text/csv;charset=utf-8"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download="extracciones_"+($("mes").value||"mes")+".csv";
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+$("btnBackup").onclick=()=>{
+  const blob=new Blob([JSON.stringify(pacientes,null,2)],{type:"application/json"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download="backup_extracciones.json";
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+$("btnRestore").onclick=()=>$("restore").click();
+
+$("restore").onchange=async e=>{
+  const file=e.target.files[0];
+  if(!file)return;
+  try{
+    const data=JSON.parse(await file.text());
+    if(!Array.isArray(data))throw new Error("El archivo no contiene una lista válida.");
+    pacientes=data;
+    guardarDatos();
+    renderPacientes();
+    alert("Copia restaurada correctamente.");
+  }catch(err){
+    alert("No se pudo restaurar: "+err.message);
+  }
+};
+
+/* =========================
+   SESIÓN
+========================= */
+$("btnLogin").onclick=iniciarSesion;
+$("passwordLogin").addEventListener("keydown",e=>{
+  if(e.key==="Enter") iniciarSesion();
+});
+$("btnLogout").onclick=cerrarSesion;
+
+cargarDatos();
+
+if(localStorage.getItem(KEY_SESION)==="1"){
+  mostrarApp();
+}else{
+  $("login").style.display="block";
+  $("app").style.display="none";
+}
+
+if($("mes")) $("mes").value=new Date().toISOString().slice(0,7);
+</script>
+</body>
+</html>
